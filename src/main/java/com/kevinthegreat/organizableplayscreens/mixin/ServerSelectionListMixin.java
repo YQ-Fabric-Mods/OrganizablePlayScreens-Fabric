@@ -123,7 +123,7 @@ public abstract class ServerSelectionListMixin extends ObjectSelectionList<Serve
         if (organizableplayscreens_currentFolder != organizableplayscreens_rootFolder) {
             MultiplayerFolderEntry oldCurrentFolder = organizableplayscreens_currentFolder;
             organizableplayscreens_setCurrentFolder(organizableplayscreens_currentFolder.getParent());
-            setSelected(oldCurrentFolder);
+            setFocused(oldCurrentFolder);
             return true;
         }
         return false;

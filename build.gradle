@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom' version '1.17-SNAPSHOT'
+	id 'net.fabricmc.fabric-loom' version '1.17.21'
 	id 'maven-publish'
 	id 'me.modmuss50.mod-publish-plugin' version '1.1.0'
 }
@@ -43,15 +43,23 @@ fabricApi {
 	}
 }
 
+def gametestJar = tasks.register("gametestJar", Jar) {
+    archiveClassifier = "gametest"
+    from sourceSets.gametest.output
+}
+
 tasks.register("runProductionClientGameTest", net.fabricmc.loom.task.prod.ClientProductionRunTask) {
+    dependsOn "acceptGameTestEula"
+    mods.from(gametestJar.flatMap { it.archiveFile })
+    runDir = layout.buildDirectory.dir("run/clientGameTest")
     jvmArgs.addAll([
             "-Dfabric.client.gametest",
             "-Dfabric.client.gametest.disableNetworkSynchronizer=true"
     ])
-    useXVFB = true
+    useXVFB = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux")
 }
 
-processResources {
+tasks.withType(ProcessResources).configureEach {
 	inputs.property "version", project.version
 
 	filesMatching("fabric.mod.json") {
@@ -112,16 +120,16 @@ publishMods {
 		projectSlug = "organizable-play-screens" // Required for discord webhook
 		accessToken = providers.environmentVariable("CURSEFORGE_TOKEN")
 		minecraftVersionRange {
-			start = "26.2"
-			end = "26.2"
+			start = project.minecraft_version
+			end = project.minecraft_version
 		}
 	}
 	modrinth {
 		projectId = "zKrZtg3n"
 		accessToken = providers.environmentVariable("MODRINTH_TOKEN")
 		minecraftVersionRange {
-			start = "26.2"
-			end = "26.2"
+			start = project.minecraft_version
+			end = project.minecraft_version
 		}
 	}
 	github {

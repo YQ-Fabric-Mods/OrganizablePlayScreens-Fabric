@@ -137,7 +137,7 @@ public abstract class WorldSelectionListMixin extends ObjectSelectionList<WorldS
         if (organizableplayscreens_currentFolder != organizableplayscreens_rootFolder) {
             SingleplayerFolderEntry oldCurrentFolder = organizableplayscreens_currentFolder;
             organizableplayscreens_setCurrentFolder(organizableplayscreens_currentFolder.getParent());
-            setSelected(oldCurrentFolder);
+            setFocused(oldCurrentFolder);
             return true;
         }
         return false;

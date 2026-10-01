@@ -2,6 +2,7 @@ package com.kevinthegreat.organizableplayscreens;
 
 import com.kevinthegreat.organizableplayscreens.gui.*;
 import com.kevinthegreat.organizableplayscreens.mixin.accessor.AbstractSelectionListInvoker;
+import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.platform.NativeImage;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -11,11 +12,13 @@ import net.fabricmc.fabric.mixin.client.gametest.gui.ScreenAccessor;
 import net.minecraft.Optionull;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.client.gui.screens.multiplayer.ServerSelectionList;
 import net.minecraft.client.gui.screens.worldselection.WorldSelectionList;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.MouseButtonInfo;
 
@@ -46,6 +49,7 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
         createNewEntry(context, "organizableplayscreens:entry.section");
         createNewEntry(context, "organizableplayscreens:entry.separator");
         context.assertScreenshotEquals(TestScreenshotComparisonOptions.of("select-world-screen-folder").save());
+        testKeyboardControls(context, SingleplayerSectionEntry.class);
 
         // Move the section above the folder and assert the select world screen folder reordered
         clickListWidgetEntry(context, SingleplayerSectionEntry.class, 0);
@@ -117,6 +121,7 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
         createNewEntry(context, "organizableplayscreens:entry.section");
         createNewEntry(context, "organizableplayscreens:entry.separator");
         context.assertScreenshotEquals(TestScreenshotComparisonOptions.of("multiplayer-screen-folder").save());
+        testKeyboardControls(context, MultiplayerSectionEntry.class);
 
         // Move the section above the folder and assert the multiplayer screen folder reordered
         clickListWidgetEntry(context, MultiplayerSectionEntry.class, 0);
@@ -239,8 +244,67 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
         context.assertScreenshotEquals(TestScreenshotComparisonOptions.of("new-folder-screen").save());
         // Click the entry type button
         context.clickScreenButton(translationKey);
-        // Finish creating the new entry
-        context.clickScreenButton("gui.done");
+        // Exercise SDL text input and both Enter keys while the name field is focused.
+        EditBox nameField = context.computeOnClient(client -> client.gui.screen().children().stream()
+                .filter(EditBox.class::isInstance)
+                .map(EditBox.class::cast)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Could not find the entry name field")));
+        String name = context.computeOnClient(client -> {
+            client.gui.screen().setFocused(nameField);
+            return nameField.getValue();
+        });
+        context.getInput().typeChars("x");
+        context.runOnClient(client -> {
+            if (!nameField.getValue().equals(name + "x")) {
+                throw new AssertionError("Text input did not reach the focused name field");
+            }
+        });
+        context.getInput().pressKey(InputConstants.KEY_BACKSPACE);
+        context.getInput().pressKey(translationKey.equals("organizableplayscreens:entry.section") ? InputConstants.KEY_NUMPADENTER : InputConstants.KEY_RETURN);
+    }
+
+    private <T extends ObjectSelectionList.Entry<? super T>> void testKeyboardControls(ClientGameTestContext context, Class<T> sectionClass) {
+        clickListWidgetEntry(context, sectionClass, 33);
+        ObjectSelectionList<?> list = context.computeOnClient(client -> {
+            ObjectSelectionList<?> widget = getListWidget(client);
+            client.gui.screen().setFocused(widget);
+            return widget;
+        });
+        T section = context.computeOnClient(client -> getListWidgetEntry(list, sectionClass, 0));
+        int originalIndex = context.computeOnClient(client -> list.children().indexOf(section));
+        // Fabric's synthetic key input currently supplies zero event modifiers even with holdShift().
+        context.runOnClient(client -> {
+            client.gui.screen().keyPressed(new KeyEvent(InputConstants.KEY_UP, InputConstants.KEYCODE_UP, InputConstants.MOD_SHIFT));
+            if (list.children().indexOf(section) != originalIndex - 1) {
+                throw new AssertionError("Shift+Up did not move the section up");
+            }
+            client.gui.screen().keyPressed(new KeyEvent(InputConstants.KEY_DOWN, InputConstants.KEYCODE_DOWN, InputConstants.MOD_SHIFT));
+            if (list.children().indexOf(section) != originalIndex) {
+                throw new AssertionError("Shift+Down did not move the section back");
+            }
+        });
+
+        Object folder = context.computeOnClient(client -> getCurrentFolder(list));
+        context.getInput().pressKey(InputConstants.KEY_ESCAPE);
+        context.runOnClient(client -> {
+            if (getCurrentFolder(list) == folder || list.getSelected() != folder) {
+                throw new AssertionError("Escape did not return to the parent folder");
+            }
+        });
+        context.getInput().pressKey(InputConstants.KEY_RETURN);
+        context.runOnClient(client -> {
+            if (getCurrentFolder(list) != folder) {
+                throw new AssertionError("Enter did not reopen the selected folder");
+            }
+        });
+    }
+
+    private Object getCurrentFolder(ObjectSelectionList<?> list) {
+        if (list instanceof WorldSelectionList worlds) {
+            return worlds.organizableplayscreens_getCurrentFolder();
+        }
+        return ((ServerSelectionList) list).organizableplayscreens_getCurrentFolder();
     }
 
     private void clickScreenButton(ClientGameTestContext context, String text) {
@@ -253,7 +317,7 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
                 .map(AbstractWidget.class::cast)
                 .filter(clickableWidget -> text.equals(clickableWidget.getMessage().getString()))
                 .findAny()
-                .ifPresentOrElse(clickableWidget -> clickableWidget.onClick(new MouseButtonEvent(clickableWidget.getX(), clickableWidget.getY(), new MouseButtonInfo(0, 0)), false), () -> {
+                .ifPresentOrElse(clickableWidget -> clickableWidget.onClick(new MouseButtonEvent(clickableWidget.getX(), clickableWidget.getY(), new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, 0)), false), () -> {
                     throw new AssertionError("Could not find button '%s' in screen '%s'".formatted(text, Optionull.map(client.gui.screen(), screen -> screen.getClass().getName())));
                 })
         );
@@ -270,7 +334,7 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
             int i = listWidget.children().indexOf(entry);
             int x = listWidget.getRowLeft() + xOffset;
             int y = ((AbstractSelectionListInvoker) listWidget).rowTop(i);
-            listWidget.mouseClicked(new MouseButtonEvent(x, y, new MouseButtonInfo(0, 0)), false);
+            listWidget.mouseClicked(new MouseButtonEvent(x, y, new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, 0)), false);
         });
     }
 
@@ -278,7 +342,7 @@ public class OrganizablePlayScreensClientGameTest implements FabricClientGameTes
         context.runOnClient(client -> {
             ObjectSelectionList<?> listWidget = getListWidget(client);
             T folderEntry = getListWidgetEntry(listWidget, folderClass, 0);
-            folderEntry.getButtonMoveInto().onClick(new MouseButtonEvent(folderEntry.getButtonMoveInto().getX(), folderEntry.getButtonMoveInto().getY(), new MouseButtonInfo(0, 0)), false);
+            folderEntry.getButtonMoveInto().onClick(new MouseButtonEvent(folderEntry.getButtonMoveInto().getX(), folderEntry.getButtonMoveInto().getY(), new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, 0)), false);
         });
     }
 
